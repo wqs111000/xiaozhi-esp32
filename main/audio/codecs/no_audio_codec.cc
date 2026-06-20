@@ -1,6 +1,7 @@
 #include "no_audio_codec.h"
 
 #include <esp_log.h>
+#include <sdkconfig.h>
 #include <cmath>
 #include <cstring>
 
@@ -172,11 +173,19 @@ NoAudioCodecSimplex::NoAudioCodecSimplex(int input_sample_rate, int output_sampl
 
         },
         .slot_cfg = {
+#if defined(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_CAM)
+            .data_bit_width = I2S_DATA_BIT_WIDTH_16BIT,
+            .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
+            .slot_mode = I2S_SLOT_MODE_STEREO,
+            .slot_mask = I2S_STD_SLOT_BOTH,
+            .ws_width = I2S_DATA_BIT_WIDTH_16BIT,
+#else
             .data_bit_width = I2S_DATA_BIT_WIDTH_32BIT,
             .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
             .slot_mode = I2S_SLOT_MODE_MONO,
             .slot_mask = spk_slot_mask,
             .ws_width = I2S_DATA_BIT_WIDTH_32BIT,
+#endif
             .ws_pol = false,
             .bit_shift = true,
             #ifdef   I2S_HW_VERSION_2
@@ -205,7 +214,11 @@ NoAudioCodecSimplex::NoAudioCodecSimplex(int input_sample_rate, int output_sampl
     chan_cfg.id = (i2s_port_t)1;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, nullptr, &rx_handle_));
     std_cfg.clk_cfg.sample_rate_hz = (uint32_t)input_sample_rate_;
+    std_cfg.slot_cfg.data_bit_width = I2S_DATA_BIT_WIDTH_32BIT;
+    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO;
+    std_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_MONO;
     std_cfg.slot_cfg.slot_mask = mic_slot_mask;
+    std_cfg.slot_cfg.ws_width = I2S_DATA_BIT_WIDTH_32BIT;
     std_cfg.gpio_cfg.bclk = mic_sck;
     std_cfg.gpio_cfg.ws = mic_ws;
     std_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
@@ -216,6 +229,22 @@ NoAudioCodecSimplex::NoAudioCodecSimplex(int input_sample_rate, int output_sampl
 
 int NoAudioCodec::Write(const int16_t* data, int samples) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
+
+#if defined(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_CAM)
+    std::vector<int16_t> buffer(samples * 2);
+
+    int32_t volume_factor = pow(double(output_volume_) / 100.0, 2) * 65536;
+    for (int i = 0; i < samples; i++) {
+        int64_t temp = int64_t(data[i]) * volume_factor / 65536;
+        int16_t sample = (temp > INT16_MAX) ? INT16_MAX : (temp < INT16_MIN) ? INT16_MIN : (int16_t)temp;
+        buffer[i * 2] = sample;
+        buffer[i * 2 + 1] = sample;
+    }
+
+    size_t bytes_written;
+    ESP_ERROR_CHECK(i2s_channel_write(tx_handle_, buffer.data(), buffer.size() * sizeof(int16_t), &bytes_written, portMAX_DELAY));
+    return bytes_written / (sizeof(int16_t) * 2);
+#else
     std::vector<int32_t> buffer(samples);
 
     // output_volume_: 0-100
@@ -235,6 +264,7 @@ int NoAudioCodec::Write(const int16_t* data, int samples) {
     size_t bytes_written;
     ESP_ERROR_CHECK(i2s_channel_write(tx_handle_, buffer.data(), samples * sizeof(int32_t), &bytes_written, portMAX_DELAY));
     return bytes_written / sizeof(int32_t);
+#endif
 }
 
 int NoAudioCodec::Read(int16_t* dest, int samples) {

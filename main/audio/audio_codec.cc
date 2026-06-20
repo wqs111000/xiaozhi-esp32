@@ -1,6 +1,7 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "settings.h"
+#include "sdkconfig.h"
 
 #include <esp_log.h>
 #include <cstring>
@@ -33,6 +34,12 @@ void AudioCodec::Start() {
         ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume_);
         output_volume_ = 10;
     }
+
+#if defined(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_CAM)
+    if (output_volume_ < 60) {
+        output_volume_ = 80;
+    }
+#endif
 
     ESP_LOGI(TAG, "Audio codec started");
 }

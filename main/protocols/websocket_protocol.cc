@@ -30,6 +30,8 @@ bool WebsocketProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         return false;
     }
 
+    last_incoming_time_ = std::chrono::steady_clock::now();
+
     if (version_ == 2) {
         std::string serialized;
         serialized.resize(sizeof(BinaryProtocol2) + packet->payload.size());
@@ -61,6 +63,8 @@ bool WebsocketProtocol::SendText(const std::string& text) {
     if (websocket_ == nullptr || !websocket_->IsConnected()) {
         return false;
     }
+
+    last_incoming_time_ = std::chrono::steady_clock::now();
 
     if (!websocket_->Send(text)) {
         ESP_LOGE(TAG, "Failed to send text: %s", text.c_str());
@@ -178,6 +182,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }
+    last_incoming_time_ = std::chrono::steady_clock::now();
 
     // Send hello message to describe the client
     auto message = GetHelloMessage();

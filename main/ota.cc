@@ -2,6 +2,7 @@
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
+#include "sdkconfig.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -44,6 +45,9 @@ Ota::~Ota() {
 }
 
 std::string Ota::GetCheckVersionUrl() {
+#ifdef CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_CAM
+    return CONFIG_OTA_URL;
+#endif
     Settings settings("wifi", false);
     std::string url = settings.GetString("ota_url");
     if (url.empty()) {
