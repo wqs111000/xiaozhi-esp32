@@ -320,3 +320,209 @@ std::string Esp32Camera::Explain(const std::string &question) {
              current_fb_->width, current_fb_->height, (int)total_sent, (int)remain_stack_size, question.c_str(), result.c_str());
     return result;
 }
+
+// -----------------------------------------------------------------------
+// MJPEG HTTP Stream
+// -----------------------------------------------------------------------
+#define STREAM_CONTENT_TYPE "multipart/x-mixed-replace;boundary=frame"
+#define STREAM_BOUNDARY     "\r\n--frame\r\n"
+#define STREAM_PART_FMT     "Content-Type: image/jpeg\r\nContent-Length: %zu\r\n\r\n"
+
+esp_err_t Esp32Camera::StreamHandler(httpd_req_t *req) {
+    auto *cam = static_cast<Esp32Camera *>(req->user_ctx);
+    if (!cam || !cam->stream_enabled_) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, "Stream disabled. POST /toggle to enable.", -1);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+
+    char part_buf[64];
+    ESP_LOGI(TAG, "Stream client connected");
+
+    while (true) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        uint8_t *jpg_buf = nullptr;
+        size_t   jpg_len = 0;
+        bool     must_free = false;
+
+        if (fb->format == PIXFORMAT_JPEG) {
+            jpg_buf = fb->buf;
+            jpg_len = fb->len;
+        } else {
+            // RGB565 / YUV → JPEG via img_converters
+            must_free = frame2jpg(fb, 80, &jpg_buf, &jpg_len);
+        }
+        esp_camera_fb_return(fb);
+
+        if (jpg_buf && jpg_len > 0) {
+            esp_err_t res = ESP_OK;
+            res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
+            if (res == ESP_OK) {
+                int hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART_FMT, jpg_len);
+                res = httpd_resp_send_chunk(req, part_buf, hlen);
+            }
+            if (res == ESP_OK) {
+                res = httpd_resp_send_chunk(req, (const char *)jpg_buf, jpg_len);
+            }
+            if (must_free) free(jpg_buf);
+            if (res != ESP_OK) {
+                // Client disconnected
+                ESP_LOGI(TAG, "Stream client disconnected");
+                break;
+            }
+        } else {
+            if (must_free && jpg_buf) free(jpg_buf);
+        }
+
+        // ~10 FPS target; VGA RGB565→JPEG takes ~100ms so this is mostly pacing
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return ESP_OK;
+}
+
+esp_err_t Esp32Camera::SnapshotHandler(httpd_req_t *req) {
+    auto *cam = static_cast<Esp32Camera *>(req->user_ctx);
+    if (!cam || !cam->stream_enabled_) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, "Stream disabled. POST /toggle to enable.", -1);
+        return ESP_OK;
+    }
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    uint8_t *jpg_buf = nullptr;
+    size_t   jpg_len = 0;
+    bool     must_free = false;
+
+    if (fb->format == PIXFORMAT_JPEG) {
+        jpg_buf = fb->buf;
+        jpg_len = fb->len;
+    } else {
+        must_free = frame2jpg(fb, 80, &jpg_buf, &jpg_len);
+    }
+    esp_camera_fb_return(fb);
+
+    if (jpg_buf && jpg_len > 0) {
+        httpd_resp_set_type(req, "image/jpeg");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+        httpd_resp_send(req, (const char *)jpg_buf, jpg_len);
+    } else {
+        httpd_resp_send_500(req);
+    }
+
+    if (must_free && jpg_buf) free(jpg_buf);
+    return ESP_OK;
+}
+
+esp_err_t Esp32Camera::ToggleHandler(httpd_req_t *req) {
+    auto *cam = static_cast<Esp32Camera *>(req->user_ctx);
+    if (!cam) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    cam->stream_enabled_ = !cam->stream_enabled_;
+    ESP_LOGI(TAG, "Camera stream %s", cam->stream_enabled_ ? "ENABLED" : "DISABLED");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"enabled\":%s}", cam->stream_enabled_ ? "true" : "false");
+    httpd_resp_send(req, buf, -1);
+    return ESP_OK;
+}
+
+esp_err_t Esp32Camera::StatusHandler(httpd_req_t *req) {
+    auto *cam = static_cast<Esp32Camera *>(req->user_ctx);
+    if (!cam) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"enabled\":%s,\"port\":%d}",
+             cam->stream_enabled_ ? "true" : "false", cam->stream_port_);
+    httpd_resp_send(req, buf, -1);
+    return ESP_OK;
+}
+
+bool Esp32Camera::StartHttpStream(uint16_t port) {
+    if (stream_httpd_) {
+        ESP_LOGW(TAG, "Stream server already running on port %d", stream_port_);
+        return true;
+    }
+    stream_port_ = port;
+
+    httpd_config_t config  = HTTPD_DEFAULT_CONFIG();
+    config.server_port     = port;
+    config.stack_size      = 8192;
+    config.core_id         = 1;   // Core 1, keep core 0 for audio
+    config.max_open_sockets = 3;  // /stream + /snapshot + /toggle or /status
+
+    if (httpd_start(&stream_httpd_, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start camera stream HTTP server on port %d", port);
+        stream_httpd_ = nullptr;
+        return false;
+    }
+
+    httpd_uri_t stream_uri = {
+        .uri      = "/stream",
+        .method   = HTTP_GET,
+        .handler  = StreamHandler,
+        .user_ctx = this,
+    };
+    httpd_register_uri_handler(stream_httpd_, &stream_uri);
+
+    httpd_uri_t snap_uri = {
+        .uri      = "/snapshot",
+        .method   = HTTP_GET,
+        .handler  = SnapshotHandler,
+        .user_ctx = this,
+    };
+    httpd_register_uri_handler(stream_httpd_, &snap_uri);
+
+    httpd_uri_t toggle_uri = {
+        .uri      = "/toggle",
+        .method   = HTTP_POST,
+        .handler  = ToggleHandler,
+        .user_ctx = this,
+    };
+    httpd_register_uri_handler(stream_httpd_, &toggle_uri);
+
+    httpd_uri_t status_uri = {
+        .uri      = "/status",
+        .method   = HTTP_GET,
+        .handler  = StatusHandler,
+        .user_ctx = this,
+    };
+    httpd_register_uri_handler(stream_httpd_, &status_uri);
+
+    ESP_LOGI(TAG, "Camera HTTP server started on port %d — /stream, /snapshot, /toggle (POST), /status (GET)", port);
+    return true;
+}
+
+void Esp32Camera::StopHttpStream() {
+    if (stream_httpd_) {
+        httpd_stop(stream_httpd_);
+        stream_httpd_ = nullptr;
+        ESP_LOGI(TAG, "Camera HTTP stream stopped");
+    }
+}

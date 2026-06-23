@@ -8,6 +8,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <esp_http_server.h>
 
 #include "camera.h"
 #include "esp_camera.h"
@@ -31,6 +32,16 @@ private:
     uint8_t *encode_buf_ = nullptr;  // Buffer for JPEG encoding (with optional byte swap)
     size_t encode_buf_size_ = 0;
 
+    // MJPEG HTTP stream
+    httpd_handle_t stream_httpd_ = nullptr;
+    uint16_t stream_port_ = 8080;
+    bool stream_enabled_ = false;  // Stream off by default, toggle via HTTP
+
+    static esp_err_t StreamHandler(httpd_req_t *req);
+    static esp_err_t SnapshotHandler(httpd_req_t *req);
+    static esp_err_t ToggleHandler(httpd_req_t *req);
+    static esp_err_t StatusHandler(httpd_req_t *req);
+
 public:
     Esp32Camera(const camera_config_t &config);
     ~Esp32Camera();
@@ -41,4 +52,10 @@ public:
     virtual bool SetVFlip(bool enabled) override;
     virtual bool SetSwapBytes(bool enabled) override;
     virtual std::string Explain(const std::string &question) override;
+
+    bool StartHttpStream(uint16_t port = 8080);
+    void StopHttpStream();
+    uint16_t GetStreamPort() const { return stream_port_; }
+    bool IsStreamEnabled() const { return stream_enabled_; }
+    void SetStreamEnabled(bool enabled) { stream_enabled_ = enabled; }
 };

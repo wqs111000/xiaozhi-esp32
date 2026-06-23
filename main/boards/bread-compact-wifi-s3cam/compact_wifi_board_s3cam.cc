@@ -12,12 +12,16 @@
 #include "power_save_timer.h"
 
 #include <esp_log.h>
+#include <esp_event.h>
+#include <esp_netif.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <driver/spi_common.h>
 #include <esp_sleep.h>
+#include <esp_camera.h>
+#include <sensor.h>
 
 #if defined(LCD_TYPE_ILI9341_SERIAL)
 #include "esp_lcd_ili9341.h"
@@ -154,12 +158,68 @@ private:
         config.pixel_format = PIXFORMAT_RGB565;
         config.frame_size = FRAMESIZE_VGA;
         config.jpeg_quality = 12;
-        config.fb_count = 1;
+        config.fb_count = 2;
         config.fb_location = CAMERA_FB_IN_PSRAM;
-        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+        config.grab_mode = CAMERA_GRAB_LATEST;
         camera_ = new Esp32Camera(config);
         camera_->SetHMirror(false);
         camera_->SetVFlip(1);
+
+        // Apply sensor tuning for decent image quality
+        sensor_t *s = esp_camera_sensor_get();
+        if (s) {
+            s->set_whitebal(s, 1);       // Auto white balance ON
+            s->set_awb_gain(s, 1);       // AWB gain ON
+            s->set_exposure_ctrl(s, 1);  // Auto exposure control ON
+            s->set_aec2(s, 1);           // DSP auto exposure ON
+            s->set_gain_ctrl(s, 1);      // Auto gain control ON
+            s->set_gainceiling(s, (gainceiling_t)6);  // Max gain ceiling x16
+            s->set_lenc(s, 1);           // Lens correction ON
+            s->set_bpc(s, 1);            // Black pixel correction ON
+            s->set_wpc(s, 1);            // White pixel correction ON
+            s->set_brightness(s, 2);     // Maximum brightness boost
+            s->set_saturation(s, 1);     // Slight saturation boost
+            s->set_contrast(s, 1);       // Slight contrast boost
+            s->set_ae_level(s, 2);       // Maximum AE compensation (+2)
+            s->set_wb_mode(s, 0);        // Auto WB mode
+            ESP_LOGI(TAG, "Camera sensor tuning applied (PID=0x%02X)", s->id.PID);
+
+            // Discard first few frames to let AE/AWB settle
+            for (int i = 0; i < 5; i++) {
+                camera_fb_t *fb = esp_camera_fb_get();
+                if (fb) esp_camera_fb_return(fb);
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+        }
+
+        // HTTP stream server start is deferred to StartNetwork() override,
+        // after WiFi/TCP-IP stack is initialized.
+    }
+
+    // Override StartNetwork to register IP event handler AFTER
+    // WifiBoard::StartNetwork() initializes esp_netif and the event loop.
+    // Registering in the constructor is too early — the event loop may not
+    // dispatch IP_EVENT_STA_GOT_IP to handlers registered before esp_netif_init().
+    virtual void StartNetwork() override {
+        // Base class initializes WiFi manager and starts connection
+        WifiBoard::StartNetwork();
+
+        // Now register IP event handler — event loop is guaranteed active
+        esp_err_t ret = esp_event_handler_instance_register(
+            IP_EVENT, IP_EVENT_STA_GOT_IP,
+            &CompactWifiBoardS3Cam::IpEventHandler,
+            this, nullptr);
+        ESP_LOGI(TAG, "Registered IP event handler: %s", esp_err_to_name(ret));
+    }
+
+    static void IpEventHandler(void* arg, esp_event_base_t event_base,
+                                int32_t event_id, void* event_data) {
+        if (event_id != IP_EVENT_STA_GOT_IP) return;
+        auto* self = static_cast<CompactWifiBoardS3Cam*>(arg);
+        if (self->camera_) {
+            ESP_LOGI(TAG, "WiFi connected, starting camera HTTP stream on port 8080");
+            self->camera_->StartHttpStream(8080);
+        }
     }
 
     void InitializePowerSaveTimer() {
