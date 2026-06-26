@@ -224,7 +224,10 @@ def process_emoji_collection(emoji_collection_dir, assets_dir):
     
     # Check if this is otto-gif collection
     is_otto_gif = 'otto-emoji-gif-component' in emoji_collection_dir or emoji_collection_dir.endswith('otto-gif')
-    
+
+    # Check if this is roro emotion collection
+    is_roro = 'roro' in os.path.basename(emoji_collection_dir).lower()
+
     # Otto GIF emoji aliases mapping
     otto_gif_aliases = {
         "staticstate": ["neutral", "relaxed", "sleepy", "idle"],
@@ -233,6 +236,30 @@ def process_emoji_collection(emoji_collection_dir, assets_dir):
         "anger": ["angry"],
         "scare": ["surprised", "shocked"],
         "buxue": ["thinking", "confused", "embarrassed"]
+    }
+
+    # Roro emotion aliases: map Roro emotion names to standard device emotion names
+    roro_aliases = {
+        "contentment":   ["neutral", "relaxed"],
+        "affection":     ["loving", "kissy"],
+        "amusement":     ["funny", "silly"],
+        "anger":         ["angry"],
+        "arousal":       ["happy"],
+        "awe":           ["surprised"],
+        "bitterness":    ["sad"],
+        "confusion":     ["confused"],
+        "contemplation": ["thinking"],
+        "determination": ["cool", "winking"],
+        "elation":       ["laughing"],
+        "enthusiasm":    ["happy"],
+        "fear":          ["shocked"],
+        "helplessness":  ["crying"],
+        "longing":       ["loving"],
+        "pride":         ["confident"],
+        "relief":        ["relaxed"],
+        "sadness":       ["sad"],
+        "shame":         ["embarrassed"],
+        "surprise":      ["surprised", "shocked"],
     }
     
     # Copy each image from input directory to build/assets directory
@@ -255,6 +282,14 @@ def process_emoji_collection(emoji_collection_dir, assets_dir):
                     # Add aliases for otto-gif emojis
                     if is_otto_gif and filename_without_ext in otto_gif_aliases:
                         for alias in otto_gif_aliases[filename_without_ext]:
+                            emoji_list.append({
+                                "name": alias,
+                                "file": file
+                            })
+
+                    # Add aliases for roro emotion collection
+                    if is_roro and filename_without_ext in roro_aliases:
+                        for alias in roro_aliases[filename_without_ext]:
                             emoji_list.append({
                                 "name": alias,
                                 "file": file
@@ -710,15 +745,22 @@ def get_emoji_collection_path(default_emoji_collection, xiaozhi_fonts_path, proj
     """
     Get the emoji collection path if needed
     Returns the emoji directory path or None if no emoji collection is needed
-    
+
     Supports:
+    - Project-local collections from main/assets/ (e.g., roro_96)
     - PNG emoji collections from xiaozhi-fonts (e.g., emojis_32, twemoji_64)
     - GIF emoji collections from xiaozhi-fonts (e.g., noto-emoji_128, noto-emoji_64)
     - Otto GIF emoji collection (otto-gif)
     """
     if not default_emoji_collection:
         return None
-    
+
+    # Check project-local collections first (main/assets/{name})
+    if project_root:
+        local_path = os.path.join(project_root, 'main', 'assets', default_emoji_collection)
+        if os.path.exists(local_path):
+            return local_path
+
     # Special handling for otto-gif collection
     if default_emoji_collection == 'otto-gif':
         if project_root:
