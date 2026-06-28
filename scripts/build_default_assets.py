@@ -625,11 +625,29 @@ def read_custom_wake_word_from_sdkconfig(sdkconfig_path):
             elif 'CONFIG_CUSTOM_WAKE_WORD=' in line and not line.startswith('#'):
                 # Extract string value (remove quotes)
                 value = line.split('=', 1)[1].strip('"')
-                config_values['wake_word'] = value
+                config_values['wake_word_1'] = value
             elif 'CONFIG_CUSTOM_WAKE_WORD_DISPLAY=' in line and not line.startswith('#'):
                 # Extract string value (remove quotes)
                 value = line.split('=', 1)[1].strip('"')
-                config_values['display'] = value
+                config_values['display_1'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_2=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['wake_word_2'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_DISPLAY_2=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['display_2'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_3=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['wake_word_3'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_DISPLAY_3=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['display_3'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_4=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['wake_word_4'] = value
+            elif 'CONFIG_CUSTOM_WAKE_WORD_DISPLAY_4=' in line and not line.startswith('#'):
+                value = line.split('=', 1)[1].strip('"')
+                config_values['display_4'] = value
             elif 'CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=' in line and not line.startswith('#'):
                 # Extract numeric value
                 value = line.split('=', 1)[1]
@@ -643,15 +661,22 @@ def read_custom_wake_word_from_sdkconfig(sdkconfig_path):
                         config_values['threshold'] = 20  # default (will be converted to 0.2)
     
     # Return config only if custom wake word is enabled and required fields are present
-    if (config_values.get('use_custom_wake_word', False) and 
-        'wake_word' in config_values and 
-        'display' in config_values and 
-        'threshold' in config_values):
-        return {
-            'wake_word': config_values['wake_word'],
-            'display': config_values['display'],
-            'threshold': config_values['threshold'] / 100.0  # Convert to decimal (20 -> 0.2)
-        }
+    if config_values.get('use_custom_wake_word', False) and 'threshold' in config_values:
+        commands = []
+        for i in range(1, 5):
+            wake_key = f'wake_word_{i}'
+            display_key = f'display_{i}'
+            if wake_key in config_values and display_key in config_values and len(config_values[wake_key]) > 0:
+                commands.append({
+                    'command': config_values[wake_key],
+                    'text': config_values[display_key],
+                    'action': 'wake'
+                })
+        if commands:
+            return {
+                'commands': commands,
+                'threshold': config_values['threshold'] / 100.0  # Convert to decimal (20 -> 0.2)
+            }
     
     return None
 
@@ -935,20 +960,15 @@ def main():
         # Determine language from multinet models
         language = get_language_from_multinet_models(multinet_model_names)
         
-        # Build multinet_model info structure
+        # Build multinet_model info structure with multiple commands
         multinet_model_info = {
             "language": language,
             "duration": 3000,  # Default duration in ms
             "threshold": custom_wake_word_config['threshold'],
-            "commands": [
-                {
-                    "command": custom_wake_word_config['wake_word'],
-                    "text": custom_wake_word_config['display'],
-                    "action": "wake"
-                }
-            ]
+            "commands": custom_wake_word_config['commands']
         }
-        print(f"  custom wake word: {custom_wake_word_config['wake_word']} ({custom_wake_word_config['display']})")
+        for cmd in custom_wake_word_config['commands']:
+            print(f"  custom wake word: {cmd['command']} ({cmd['text']})")
         print(f"  wake word language: {language}")
         print(f"  wake word threshold: {custom_wake_word_config['threshold']}")
     

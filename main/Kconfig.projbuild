@@ -766,6 +766,51 @@ config CUSTOM_WAKE_WORD_DISPLAY
     help
         Greeting sent to the server after wake word detection
 
+config CUSTOM_WAKE_WORD_2
+    string "Custom Wake Word 2"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Second custom wake word, use pinyin for Chinese, separated by spaces.
+        Leave empty if not used.
+
+config CUSTOM_WAKE_WORD_DISPLAY_2
+    string "Custom Wake Word Display 2"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Greeting sent to the server after second wake word detection
+
+config CUSTOM_WAKE_WORD_3
+    string "Custom Wake Word 3"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Third custom wake word, use pinyin for Chinese, separated by spaces.
+        Leave empty if not used.
+
+config CUSTOM_WAKE_WORD_DISPLAY_3
+    string "Custom Wake Word Display 3"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Greeting sent to the server after third wake word detection
+
+config CUSTOM_WAKE_WORD_4
+    string "Custom Wake Word 4"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Fourth custom wake word, use pinyin for Chinese, separated by spaces.
+        Leave empty if not used.
+
+config CUSTOM_WAKE_WORD_DISPLAY_4
+    string "Custom Wake Word Display 4"
+    default ""
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Greeting sent to the server after fourth wake word detection
+
 config CUSTOM_WAKE_WORD_THRESHOLD
     int "Custom Wake Word Threshold (%)"
     default 20

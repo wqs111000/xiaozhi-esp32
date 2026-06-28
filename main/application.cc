@@ -254,6 +254,15 @@ void Application::Run() {
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
             }
+            
+            // Listening timeout: auto-stop after 15 seconds of silence
+            if (GetDeviceState() == kDeviceStateListening && clock_ticks_ >= 15) {
+                ESP_LOGI(TAG, "Listening timeout (15s), returning to idle");
+                if (protocol_) {
+                    protocol_->SendStopListening();
+                }
+                SetDeviceState(kDeviceStateIdle);
+            }
         }
     }
 }
@@ -840,6 +849,8 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
     // Set the chat state to wake word detected
     protocol_->SendWakeWordDetected(wake_word);
+    // Play popup sound as acknowledgment before entering listening mode
+    play_popup_on_listening_ = true;
     SetListeningMode(GetDefaultListeningMode());
 #else
     // Set flag to play popup sound after state changes to listening

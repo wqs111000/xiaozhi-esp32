@@ -3,6 +3,7 @@
 #include "system_info.h"
 #include "assets.h"
 
+#include <string.h>
 #include <esp_log.h>
 #include <esp_mn_iface.h>
 #include <esp_mn_models.h>
@@ -92,6 +93,21 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
 #ifdef CONFIG_CUSTOM_WAKE_WORD
         threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
         commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
+#endif
+#ifdef CONFIG_CUSTOM_WAKE_WORD_2
+        if (strlen(CONFIG_CUSTOM_WAKE_WORD_2) > 0) {
+            commands_.push_back({CONFIG_CUSTOM_WAKE_WORD_2, CONFIG_CUSTOM_WAKE_WORD_DISPLAY_2, "wake"});
+        }
+#endif
+#ifdef CONFIG_CUSTOM_WAKE_WORD_3
+        if (strlen(CONFIG_CUSTOM_WAKE_WORD_3) > 0) {
+            commands_.push_back({CONFIG_CUSTOM_WAKE_WORD_3, CONFIG_CUSTOM_WAKE_WORD_DISPLAY_3, "wake"});
+        }
+#endif
+#ifdef CONFIG_CUSTOM_WAKE_WORD_4
+        if (strlen(CONFIG_CUSTOM_WAKE_WORD_4) > 0) {
+            commands_.push_back({CONFIG_CUSTOM_WAKE_WORD_4, CONFIG_CUSTOM_WAKE_WORD_DISPLAY_4, "wake"});
+        }
 #endif
     } else {
         models_ = models_list;

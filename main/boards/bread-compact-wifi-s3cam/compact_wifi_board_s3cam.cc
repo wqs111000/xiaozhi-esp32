@@ -163,7 +163,7 @@ private:
         config.grab_mode = CAMERA_GRAB_LATEST;
         camera_ = new Esp32Camera(config);
         camera_->SetHMirror(false);
-        camera_->SetVFlip(1);
+        camera_->SetVFlip(false);
 
         // Apply sensor tuning for decent image quality
         sensor_t *s = esp_camera_sensor_get();
